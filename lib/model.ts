@@ -12,9 +12,23 @@
 //
 //   base      = tvl_usd x 0.20 x categoryMultiplier(category)
 //   growth    = clamp(change_7d, -50, +100); growthMult = 1 + growth x 0.006
-//   maturity  = 0.65 + 0.35 x min(age_days, 1460) / 1460   (age unknown: 365)
+//   maturity  = 0.65 + 0.35 x min(age_days, 1460) / 1460   (age unknown: snapshot median age)
 //   breadth   = 1 + 0.02 x min(chains - 1, 4)              (0 chains: 1.00)
 //   implied   = max(1, round(base x growthMult x maturity x breadth))
+//
+// radar-3 changes two things over radar-2, both from the snapshot's own data:
+// - categoryMultiplier is no longer just the hand-set table: the market moves
+//   it. For each category, the median market-cap/TVL of that category's
+//   live-token protocols in the same snapshot is the market's own price for a
+//   token on that kind of business, and it shifts the hand value by up to a
+//   quarter either way (square-rooted, clamped 0.80..1.25). Categories with
+//   fewer than 3 live comparables keep the hand value. The global median
+//   market-cap/TVL across live tokens is 0.246, against the base 0.20 — the
+//   market prices a token at about a quarter of TVL, close to what the model
+//   already assumed. See lib/calibration.ts for the full reasoning.
+// - a protocol with no listed date no longer defaults to a fixed 365 days:
+//   it defaults to the snapshot's own median age across rankable pre-token
+//   protocols (464 days here).
 //
 // Why each term is there:
 // - TVL is the size of the business a token would sit on top of.
@@ -35,6 +49,8 @@
 // capped top-N: the early radar is the point of the exercise. Live-token
 // protocols are never ranked; the dashboard shows the biggest 20 by market
 // cap separately, at the market's own value.
+
+import { buildCalibration, calibratedMultiplier, type Calibration } from './calibration.ts';
 
 export interface SnapshotProtocol {
   slug: string;
@@ -83,7 +99,7 @@ export const MODEL: ModelConstants = {
   breadth_max_chains: 4,
 };
 
-export const MODEL_VERSION = 'radar-2';
+export const MODEL_VERSION = 'radar-3';
 
 /** Live-token protocols shown beside the board, by market cap. */
 export const LIVE_ROWS = 20;
@@ -186,6 +202,7 @@ export interface RadarData {
   floor_usd: number;
   model: ModelConstants;
   model_version: string;
+  calibration: import('./calibration.ts').Calibration;
   watchlist_size: number;
   board_size: number;
   early_size: number;
@@ -223,18 +240,20 @@ export function impliedValue(
   protocol: SnapshotProtocol,
   asOf: string,
   model: ModelConstants = MODEL,
+  calibration: Calibration | null = null,
+  unknownAgeDays: number | null = null,
 ): { implied: number; growthPct: number; growthMult: number; maturityMult: number; chainMult: number; catMult: number; age: number | null } {
   const age = ageDays(asOf, protocol.listed_at);
   const rawGrowth = finite(protocol.change_7d, 0);
   const growthPct = Math.min(model.growth_cap, Math.max(model.growth_floor, rawGrowth));
   const growthMult = 1 + (growthPct / 100) * model.growth_weight;
-  const ageForModel = age ?? model.unknown_age_days;
+  const ageForModel = age ?? unknownAgeDays ?? model.unknown_age_days;
   const maturityMult =
     model.maturity_floor +
     (Math.min(Math.max(ageForModel, 0), model.maturity_days) / model.maturity_days) * model.maturity_range;
   const extraChains = Math.max(0, Math.min(protocol.chains.length - 1, model.breadth_max_chains));
   const chainMult = 1 + extraChains * model.breadth_per_chain;
-  const catMult = categoryMultiplier(protocol.category);
+  const catMult = calibration === null ? categoryMultiplier(protocol.category) : calibratedMultiplier(calibration, protocol.category);
   const base = protocol.tvl_usd * model.base_multiple * catMult;
   const implied = Math.max(1, Math.round(base * growthMult * maturityMult * chainMult));
   return { implied, growthPct, growthMult, maturityMult, chainMult, catMult, age };
@@ -368,7 +387,7 @@ export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
       time: `${hold} days`,
     },
     {
-      text: `Before you withdraw, open ${p.name}'s own points or rewards page from the link it publishes itself and check whether anything accrued.`,
+      text: `Before you withdraw, check ${p.name}'s own announcements and points page for a token, snapshot or points date; if it already said no token is planned, unwind instead of waiting on it.`,
       cost: 'no fee to check, and never pay to claim',
       time: '10 minutes',
     },
@@ -380,7 +399,7 @@ export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
   ];
 }
 
-export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): BoardRow[] {
+export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): { board: BoardRow[]; calibration: Calibration } {
   const index = bySlug(snapshot.protocols);
   const chosen = new Map<string, SnapshotProtocol>();
   // The watchlist is the floor: every slug it names is ranked.
@@ -395,12 +414,15 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
     .sort((a, b) => b.tvl_usd - a.tvl_usd || (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
   for (const p of early) chosen.set(p.slug, p);
 
+  // radar-3: calibrate the category multipliers from this snapshot's own
+  // live-token market caps before scoring anything.
+  const calibration = buildCalibration(snapshot, categoryMultiplier, [...chosen.values()], snapshot.as_of);
   const scored = [...chosen.values()].map((p) => {
-    const v = impliedValue(p, snapshot.as_of, model);
+    const v = impliedValue(p, snapshot.as_of, model, calibration, calibration.unknown_age_days);
     return { p, ...v };
   });
   scored.sort((a, b) => b.implied - a.implied || (a.p.slug < b.p.slug ? -1 : a.p.slug > b.p.slug ? 1 : 0));
-  return scored.map((s, i) => ({
+  const board = scored.map((s, i) => ({
     rank: i + 1,
     slug: s.p.slug,
     name: s.p.name,
@@ -426,6 +448,7 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
     },
     farm_steps: farmSteps(s.p, s.age).map(stepText),
   }));
+  return { board, calibration };
 }
 
 /** The live-token protocols, by market cap, shown at the market's own value. */
@@ -466,7 +489,7 @@ export function radarRow(row: BoardRow, onWatchlist: boolean): RadarRow {
 }
 
 export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): { board: BoardRow[]; radar: RadarData } {
-  const board = buildBoard(snapshot, model);
+  const { board, calibration } = buildBoard(snapshot, model);
   const live = liveRows(snapshot);
   const early = board.filter((r) => !snapshot.watchlist.includes(r.slug)).length;
   const watchSet = new Set(snapshot.watchlist);
@@ -480,6 +503,7 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     floor_usd: snapshot.floor_usd,
     model,
     model_version: MODEL_VERSION,
+    calibration,
     watchlist_size: snapshot.watchlist.length,
     board_size: board.length,
     early_size: early,
