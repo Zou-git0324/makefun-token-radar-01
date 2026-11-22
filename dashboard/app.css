@@ -51,7 +51,7 @@ h2 { margin: 0 0 8px; font-size: 19px; }
 body.compact #modelBox { display: none; }
 /* Deep-linked detail view: the detail itself is the page, so the masthead,
    filters and result line step aside and no scroll position is needed. */
-body.focus-detail .masthead, body.focus-detail .controls, body.focus-detail .result-line { display: none; }
+body.focus-detail .masthead, body.focus-detail .controls, body.focus-detail .result-line, body.focus-detail #panels { display: none; }
 .detail { border: 2px solid var(--amber); background: #fffaf0; }
 .detail h2 { font-size: 24px; margin-bottom: 2px; }
 .detail .sub { color: var(--ink-soft); margin: 0 0 12px; }
@@ -96,4 +96,15 @@ footer { color: var(--ink-soft); font-size: 13px; }
   h1 { font-size: 32px; }
   .live-list { columns: 1; }
   .bar-row { grid-template-columns: 110px 1fr 54px; }
+}
+/* radar-3 panels: category summary + market calibration, side by side. */
+.panel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.panel-grid h3 { margin: 4px 0 8px; font-size: 15px; }
+.mini { font-size: 13px; }
+.mini th { position: static; }
+.mini th, .mini td { padding: 7px 9px; }
+#catSummary tbody tr { cursor: pointer; }
+#csvNote { color: var(--ink-soft); font-size: 13px; margin-left: 8px; }
+@media (max-width: 760px) {
+  .panel-grid { grid-template-columns: 1fr; }
 }

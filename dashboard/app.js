@@ -80,7 +80,9 @@
       return true;
     });
     var key = f.sortBy === 'rank' ? sortKey : f.sortBy;
-    var dir = f.sortBy === 'rank' ? sortDir : 1;
+    // Numeric sorts run high to low (the labels promise it); name and
+    // category run A to Z. Rank follows the header toggle instead.
+    var dir = f.sortBy === 'rank' ? sortDir : (f.sortBy === 'name' || f.sortBy === 'category' ? 1 : -1);
     var val = function (r) {
       if (key === 'tvl') return r.tvl_usd;
       if (key === 'growth') return r.change_7d === null ? -Infinity : r.change_7d;

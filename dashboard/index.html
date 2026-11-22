@@ -28,12 +28,28 @@
     <h2>How the value is worked out <span class="model-ver" id="modelVer">radar-2</span></h2>
     <p class="model-formula">implied = TVL &times; 0.20 &times; category &times; growth &times; maturity &times; chain breadth</p>
     <ul class="model-points">
-      <li><b>TVL &times; 0.20</b> — the size of the business a token would sit on. <b>Category</b> is a risk haircut (curators and lenders 1.05–1.15, wrappers and stable shells 0.80–0.90), keyed on the snapshot&rsquo;s category field, never on a name.</li>
+      <li><b>TVL &times; 0.20</b> — the size of the business a token would sit on. <b>Category</b> is a risk haircut, now set by the market as well as by hand: each category&rsquo;s multiplier starts from the hand-set table (curators and lenders 1.05–1.15, wrappers and stable shells 0.80–0.90) and moves by up to a quarter from the median market-cap/TVL of that category&rsquo;s live tokens in this same snapshot — only where at least 3 live tokens price it. The panel below shows the evidence per category.</li>
       <li><b>Growth</b> — the 7-day TVL change, clamped to &minus;50%…+100%, weighted 0.6. A protocol still compounding scores above one that is bleeding out.</li>
       <li><b>Maturity</b> — 0.65 + 0.35 &times; min(age, 4 years) / 4 years. Holding a large TVL for years with no token is pent-up launch value; the curve flattens after four years.</li>
       <li><b>Chain breadth</b> — +2% per extra chain, up to +8%. Multi-chain protocols are less exposed to one chain&rsquo;s outage or incentive cut.</li>
     </ul>
     <p class="caveat">&ldquo;Records no token&rdquo; means the snapshot carries no market cap, no CoinGecko id and no symbol for it. That is the record, not proof — a protocol may still have a token its record does not carry. Implied value is this radar&rsquo;s own claim, not a prediction that a token launches, or when.</p>
+  </section>
+
+  <section class="card" id="panels">
+    <h2>By category — and what the market says each category is worth</h2>
+    <p class="live-note">Left: every category on the board, its size, its median implied value and its best row — click a row to filter the board to it. Right: the market evidence behind each category&rsquo;s multiplier. Below: download the rows you are looking at as a CSV.</p>
+    <div class="panel-grid">
+      <div>
+        <h3>Board by category</h3>
+        <div id="catSummary"></div>
+      </div>
+      <div>
+        <h3>Market calibration</h3>
+        <div id="calibrationTable"></div>
+      </div>
+    </div>
+    <p class="pager" style="padding:12px 0 0"><button id="csvBtn" type="button">Download the filtered board as CSV</button> <span id="csvNote"></span></p>
   </section>
 
   <section class="controls card" aria-label="Filter the board">
@@ -101,5 +117,6 @@
 </main>
 <script src="../data.js"></script>
 <script src="app.js"></script>
+<script src="panels.js"></script>
 </body>
 </html>
