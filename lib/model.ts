@@ -30,6 +30,16 @@
 //   it defaults to the snapshot's own median age across rankable pre-token
 //   protocols (464 days here).
 //
+// radar-4 adds a parallel signal and says plainly what the board leaves out:
+// - every row now carries a launch-heat score, 0-100 (see lib/heat.ts):
+//   size of the prize (log implied value, 0.40), this week's compounding
+//   (7d change, 0.35) and youth (0.25). Heat never changes the rank order —
+//   rank stays by implied value — it only flags which rows are running hot.
+// - the board still ranks the watchlist plus every rankable pre-token
+//   protocol below the $50M floor, but 63 rankable protocols sit above that
+//   floor and are not ranked at all; RadarData.excluded counts them by
+//   category so the omission is visible instead of silent.
+//
 // Why each term is there:
 // - TVL is the size of the business a token would sit on top of.
 // - categoryMultiplier is a risk haircut, not a favourites list: yield-bearing
@@ -51,6 +61,7 @@
 // cap separately, at the market's own value.
 
 import { buildCalibration, calibratedMultiplier, type Calibration } from './calibration.ts';
+import { heatFor } from './heat.ts';
 
 export interface SnapshotProtocol {
   slug: string;
@@ -99,7 +110,7 @@ export const MODEL: ModelConstants = {
   breadth_max_chains: 4,
 };
 
-export const MODEL_VERSION = 'radar-3';
+export const MODEL_VERSION = 'radar-4';
 
 /** Live-token protocols shown beside the board, by market cap. */
 export const LIVE_ROWS = 20;
@@ -156,6 +167,8 @@ export interface BoardRow {
   token_status: 'pre-token';
   age_days: number | null;
   implied_value_usd: number;
+  heat: number;
+  heat_parts: { value: number; growth: number; youth: number };
   model: {
     base_multiple: number;
     category_multiplier: number;
@@ -178,6 +191,8 @@ export interface RadarRow {
   change_7d: number | null;
   age_days: number | null;
   implied_value_usd: number;
+  heat: number;
+  heat_parts: { value: number; growth: number; youth: number };
   category_multiplier: number;
   growth_multiplier: number;
   maturity_multiplier: number;
@@ -207,6 +222,8 @@ export interface RadarData {
   board_size: number;
   early_size: number;
   live_size: number;
+  hot_size: number;
+  excluded: { count: number; by_category: Record<string, number> };
   total_implied_usd: number;
   median_implied_usd: number;
   categories: string[];
@@ -399,7 +416,7 @@ export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
   ];
 }
 
-export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): { board: BoardRow[]; calibration: Calibration } {
+export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): { board: BoardRow[]; calibration: Calibration; excluded: { count: number; by_category: Record<string, number> } } {
   const index = bySlug(snapshot.protocols);
   const chosen = new Map<string, SnapshotProtocol>();
   // The watchlist is the floor: every slug it names is ranked.
@@ -422,7 +439,27 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): {
     return { p, ...v };
   });
   scored.sort((a, b) => b.implied - a.implied || (a.p.slug < b.p.slug ? -1 : a.p.slug > b.p.slug ? 1 : 0));
-  const board = scored.map((s, i) => ({
+  // radar-4: heat is scored after ranking, from the board's own implied range.
+  const minImplied = Math.min(...scored.map((s) => s.implied));
+  const maxImplied = Math.max(...scored.map((s) => s.implied));
+  // radar-4: rankable protocols above the floor that the board does not rank.
+  const excludedByCategory: Record<string, number> = {};
+  for (const p of snapshot.protocols) {
+    if (isRankable(p) && !chosen.has(p.slug) && p.tvl_usd >= snapshot.floor_usd) {
+      const cat = p.category ?? 'Uncategorised';
+      excludedByCategory[cat] = (excludedByCategory[cat] ?? 0) + 1;
+    }
+  }
+  const excluded = {
+    count: Object.values(excludedByCategory).reduce((s, n) => s + n, 0),
+    by_category: excludedByCategory,
+  };
+  const board = scored.map((s, i) => {
+    const heat = heatFor(
+      { implied_value_usd: s.implied, change_7d: s.p.change_7d, age_days: s.age },
+      { minImplied, maxImplied },
+    );
+    return {
     rank: i + 1,
     slug: s.p.slug,
     name: s.p.name,
@@ -437,6 +474,8 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): {
     token_status: 'pre-token',
     age_days: s.age,
     implied_value_usd: s.implied,
+    heat: heat.heat,
+    heat_parts: heat.parts,
     model: {
       base_multiple: model.base_multiple,
       category_multiplier: s.catMult,
@@ -447,8 +486,9 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): {
       age_days: s.age,
     },
     farm_steps: farmSteps(s.p, s.age).map(stepText),
-  }));
-  return { board, calibration };
+    };
+  });
+  return { board, calibration, excluded };
 }
 
 /** The live-token protocols, by market cap, shown at the market's own value. */
@@ -479,6 +519,8 @@ export function radarRow(row: BoardRow, onWatchlist: boolean): RadarRow {
     change_7d: row.change_7d,
     age_days: row.age_days,
     implied_value_usd: row.implied_value_usd,
+    heat: row.heat,
+    heat_parts: row.heat_parts,
     category_multiplier: row.model.category_multiplier,
     growth_multiplier: row.model.growth_multiplier,
     maturity_multiplier: row.model.maturity_multiplier,
@@ -489,7 +531,7 @@ export function radarRow(row: BoardRow, onWatchlist: boolean): RadarRow {
 }
 
 export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): { board: BoardRow[]; radar: RadarData } {
-  const { board, calibration } = buildBoard(snapshot, model);
+  const { board, calibration, excluded } = buildBoard(snapshot, model);
   const live = liveRows(snapshot);
   const early = board.filter((r) => !snapshot.watchlist.includes(r.slug)).length;
   const watchSet = new Set(snapshot.watchlist);
@@ -508,6 +550,8 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     board_size: board.length,
     early_size: early,
     live_size: live.length,
+    hot_size: board.filter((r) => r.heat >= 70).length,
+    excluded,
     total_implied_usd: board.reduce((s, r) => s + r.implied_value_usd, 0),
     median_implied_usd: median,
     categories: [...new Set(board.map((r) => r.category ?? 'Uncategorised'))].sort(),
