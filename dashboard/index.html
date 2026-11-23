@@ -68,11 +68,13 @@
     <div class="control check">
       <label><input id="watchOnly" type="checkbox"> Watchlist only</label>
       <label><input id="earlyOnly" type="checkbox"> Early finds only <span class="hint">(below the $50M floor)</span></label>
+      <label><input id="hotOnly" type="checkbox"> Hot only <span class="hint">(heat &ge; 70)</span></label>
     </div>
     <div class="control">
       <label for="sortBy">Sort by</label>
       <select id="sortBy">
         <option value="rank">Rank (implied value)</option>
+        <option value="heat">Heat, high to low</option>
         <option value="tvl">TVL, high to low</option>
         <option value="growth">7-day growth, high to low</option>
         <option value="age">Age, oldest first</option>
@@ -82,6 +84,8 @@
   </section>
 
   <p class="result-line" id="resultLine">—</p>
+
+  <p class="hot-strip" id="hotStrip"></p>
 
   <section class="detail card hidden" id="detail" aria-live="polite"></section>
 
@@ -97,12 +101,14 @@
           <th data-sort="growth" class="num">7d</th>
           <th data-sort="age" class="num">Age</th>
           <th data-sort="rank" class="num">Implied value</th>
+          <th data-sort="heat" class="num">Heat</th>
           <th>Farm</th>
         </tr>
       </thead>
       <tbody id="rows"></tbody>
     </table>
     <p class="pager"><button id="moreBtn" type="button">Show more rows</button> <span id="shownLine"></span></p>
+    <p class="caveat" id="methodNote"></p>
   </section>
 
   <section class="live card" id="liveBox">

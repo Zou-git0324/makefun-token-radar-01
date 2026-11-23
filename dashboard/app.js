@@ -5,7 +5,7 @@
   'use strict';
   var R = window.RADAR;
   if (!R || !R.rows) {
-    document.getElementById('rows').innerHTML = '<tr><td colspan="9">No radar data found. Run main.ts to generate data.js beside this page.</td></tr>';
+    document.getElementById('rows').innerHTML = '<tr><td colspan="10">No radar data found. Run main.ts to generate data.js beside this page.</td></tr>';
     return;
   }
 
@@ -65,6 +65,7 @@
       chain: chainSel.value,
       watchOnly: $('watchOnly').checked,
       earlyOnly: $('earlyOnly').checked,
+      hotOnly: $('hotOnly').checked,
       sortBy: $('sortBy').value,
     };
   }
@@ -74,6 +75,7 @@
     var rows = R.rows.filter(function (r) {
       if (f.watchOnly && !r.on_watchlist) return false;
       if (f.earlyOnly && r.on_watchlist) return false;
+      if (f.hotOnly && r.heat < 70) return false;
       if (f.cat && (r.category || 'Uncategorised') !== f.cat) return false;
       if (f.chain && r.chains.indexOf(f.chain) === -1) return false;
       if (f.q && (r.name.toLowerCase().indexOf(f.q) === -1 && r.slug.toLowerCase().indexOf(f.q) === -1)) return false;
@@ -85,6 +87,7 @@
     var dir = f.sortBy === 'rank' ? sortDir : (f.sortBy === 'name' || f.sortBy === 'category' ? 1 : -1);
     var val = function (r) {
       if (key === 'tvl') return r.tvl_usd;
+      if (key === 'heat') return r.heat;
       if (key === 'growth') return r.change_7d === null ? -Infinity : r.change_7d;
       if (key === 'age') return r.age_days === null ? -1 : r.age_days;
       if (key === 'name') return r.name.toLowerCase();
@@ -118,9 +121,10 @@
         '<td class="num">' + fmtGrowth(r.change_7d) + '</td>' +
         '<td class="num">' + fmtAge(r.age_days) + '</td>' +
         '<td class="num"><b>' + fmtUsd(r.implied_value_usd) + '</b></td>' +
+        '<td class="num"><span style="display:inline-block;width:36px;height:8px;background:#e5e7eb;vertical-align:middle"><span style="display:block;height:8px;width:' + r.heat + '%;background:#f59e0b"></span></span> ' + r.heat + '</td>' +
         '<td><span class="farm-link">7 steps &rsaquo;</span></td></tr>';
     }).join('');
-    $('rows').innerHTML = html || '<tr><td colspan="9">No protocols match these filters. Clear the search or pick another category.</td></tr>';
+    $('rows').innerHTML = html || '<tr><td colspan="10">No protocols match these filters. Clear the search or pick another category.</td></tr>';
     $('resultLine').textContent = 'Showing ' + slice.length + ' of ' + total + ' ranked protocols' +
       (total < R.board_size ? ' (filtered from ' + R.board_size + ')' : '') + '. Click any row for its detail view and farm plan.';
     $('shownLine').textContent = total > shown ? (total - shown) + ' more rows hidden.' : '';
@@ -162,11 +166,39 @@
       barRow('Maturity', r.maturity_multiplier, 1.0, '&times;' + r.maturity_multiplier.toFixed(2), false) +
       barRow('Chain breadth', r.chain_multiplier, 1.08, '&times;' + r.chain_multiplier.toFixed(2), true) +
       '</div>' +
+      '<h3>Launch heat — ' + r.heat + ' / 100</h3>' +
+      '<div class="bars">' +
+      barRow('Heat', r.heat, 100, r.heat + ' / 100', false) +
+      barRow('Value', (r.heat_parts || {}).value || 0, 1, ((r.heat_parts || {}).value || 0).toFixed(2), false) +
+      barRow('Growth', (r.heat_parts || {}).growth || 0, 1, ((r.heat_parts || {}).growth || 0).toFixed(2), false) +
+      barRow('Youth', (r.heat_parts || {}).youth || 0, 1, ((r.heat_parts || {}).youth || 0).toFixed(2), true) +
+      '</div>' +
+      '<p class="caveat">Heat is a parallel signal, not the rank: 0.40 &times; log implied value across the board, 0.35 &times; this week&rsquo;s growth, 0.25 &times; youth. It flags what is running hot; the rank above still comes from implied value.</p>' +
       '<p class="caveat">Base is TVL &times; 0.20 &times; category. Multiply the four bars and the base and you get the implied value above — the arithmetic is on the page, not hidden.</p>' +
       '<h3>How to farm it — 7 steps</h3><ol class="farm">' + steps + '</ol>';
     box.classList.remove('hidden');
     $('closeDetail').addEventListener('click', function () { renderDetail(null); });
     renderTable();
+  }
+
+  // ---- hottest launches strip ----------------------------------------------
+  var hotTop = R.rows.slice().sort(function (a, b) { return b.heat - a.heat || a.rank - b.rank; }).slice(0, 5);
+  $('hotStrip').innerHTML = '<b>Hottest launches:</b> ' + hotTop.map(function (r) {
+    return '<a href="#detail=' + esc(r.slug) + '" data-slug="' + esc(r.slug) + '">#' + r.rank + ' ' + esc(r.name) + ' (' + r.heat + ')</a>';
+  }).join(' &middot; ');
+  $('hotStrip').addEventListener('click', function (e) {
+    var a = e.target.closest('a[data-slug]');
+    if (!a) return;
+    e.preventDefault();
+    window.location.hash = 'detail=' + a.getAttribute('data-slug');
+    renderDetail(a.getAttribute('data-slug'));
+  });
+
+  // ---- methodology note: what the board leaves out --------------------------
+  if (R.excluded) {
+    var cats = Object.keys(R.excluded.by_category).sort(function (a, b) { return R.excluded.by_category[b] - R.excluded.by_category[a]; });
+    $('methodNote').textContent = R.excluded.count + ' rankable protocols sit above the $50M early floor and are not ranked — mostly bridges and wrappers. Count by category: ' +
+      cats.map(function (c) { return c + ' ' + R.excluded.by_category[c]; }).join(', ') + '.';
   }
 
   // ---- live-token list ------------------------------------------------------
@@ -176,7 +208,7 @@
   }).join('');
 
   // ---- events ---------------------------------------------------------------
-  ['q', 'cat', 'chain', 'watchOnly', 'earlyOnly', 'sortBy'].forEach(function (id) {
+  ['q', 'cat', 'chain', 'watchOnly', 'earlyOnly', 'hotOnly', 'sortBy'].forEach(function (id) {
     $(id).addEventListener('input', function () { shown = PAGE; renderTable(); });
     $(id).addEventListener('change', function () { shown = PAGE; renderTable(); });
   });
@@ -201,6 +233,7 @@
   if (params.get('q')) { $('q').value = params.get('q'); }
   if (params.get('watch') === '1') { $('watchOnly').checked = true; }
   if (params.get('early') === '1') { $('earlyOnly').checked = true; }
+  if (params.get('hot') === '1') { $('hotOnly').checked = true; }
   var hash = window.location.hash || '';
   var m = hash.match(/detail=([A-Za-z0-9._-]+)/);
   if (params.get('view') === 'board') { document.body.classList.add('compact'); }
