@@ -8,6 +8,8 @@ A token launch radar ranking 226 pre-token protocols by implied value, with a so
 
 Radar-4 adds a launch-heat score (0–100) to every row: 40% log implied value, 35% this week's growth, 25% youth — a parallel signal that never changes the rank, only flags what is running hot. The dashboard has a sortable Heat column, a "Hot only" filter, and a "Hottest launches" strip; only one row clears 70 (Shift DeFi, 75). It also counts, by category, the 63 rankable protocols above the $50M floor that the board does not rank.
 
+Radar-5 adds a second parallel signal, category-relative momentum: each row's 7-day TVL change minus the median 7-day change of its own category, in percentage points (clamped −50…+50). A +30% week means something different in a booming category than in a flat one, so momentum flags which rows are outrunning their own kind — 134 of 226 rows beat their category median this week. The dashboard has a sortable Momentum column, a "Momentum, high to low" sort, and a "Momentum leaders" strip (Shift DeFi, August Digital, NUVA, Theo Network thBill and Manifest Trade all sit at the +50 clamp); the category panel shows each category's median 7-day change beside its median implied value. The rank order is untouched: steakhouse-financial still leads at $526.7M implied.
+
 ## Run it
 
 ```sh
