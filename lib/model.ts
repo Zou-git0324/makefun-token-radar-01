@@ -40,6 +40,16 @@
 //   floor and are not ranked at all; RadarData.excluded counts them by
 //   category so the omission is visible instead of silent.
 //
+// radar-5 adds a second parallel signal, category-relative momentum:
+// - every row now carries momentum, the row's 7d change minus the median
+//   7d change of its own category, in percentage points (see lib/momentum.ts).
+//   A +30% week means something different in a booming category than in a
+//   flat one, so momentum flags which rows are outrunning their own kind.
+//   The median comes from every protocol in the category that reports a
+//   7d change, live tokens included; a category with fewer than 3 such
+//   protocols gets no median and its rows score a neutral 0.5. Like heat,
+//   momentum never changes the rank order — rank stays by implied value.
+//
 // Why each term is there:
 // - TVL is the size of the business a token would sit on top of.
 // - categoryMultiplier is a risk haircut, not a favourites list: yield-bearing
@@ -62,6 +72,7 @@
 
 import { buildCalibration, calibratedMultiplier, type Calibration } from './calibration.ts';
 import { heatFor } from './heat.ts';
+import { buildCategoryMomentum, momentumFor } from './momentum.ts';
 
 export interface SnapshotProtocol {
   slug: string;
@@ -110,7 +121,7 @@ export const MODEL: ModelConstants = {
   breadth_max_chains: 4,
 };
 
-export const MODEL_VERSION = 'radar-4';
+export const MODEL_VERSION = 'radar-5';
 
 /** Live-token protocols shown beside the board, by market cap. */
 export const LIVE_ROWS = 20;
@@ -169,6 +180,9 @@ export interface BoardRow {
   implied_value_usd: number;
   heat: number;
   heat_parts: { value: number; growth: number; youth: number };
+  momentum: number;
+  momentum_pp: number;
+  cat_median_7d: number | null;
   model: {
     base_multiple: number;
     category_multiplier: number;
@@ -193,6 +207,9 @@ export interface RadarRow {
   implied_value_usd: number;
   heat: number;
   heat_parts: { value: number; growth: number; youth: number };
+  momentum: number;
+  momentum_pp: number;
+  cat_median_7d: number | null;
   category_multiplier: number;
   growth_multiplier: number;
   maturity_multiplier: number;
@@ -223,6 +240,7 @@ export interface RadarData {
   early_size: number;
   live_size: number;
   hot_size: number;
+  momentum_size: number;
   excluded: { count: number; by_category: Record<string, number> };
   total_implied_usd: number;
   median_implied_usd: number;
@@ -442,6 +460,9 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): {
   // radar-4: heat is scored after ranking, from the board's own implied range.
   const minImplied = Math.min(...scored.map((s) => s.implied));
   const maxImplied = Math.max(...scored.map((s) => s.implied));
+  // radar-5: momentum is scored after ranking, from each category's own
+  // median 7d change across the whole snapshot.
+  const medians = buildCategoryMomentum(snapshot.protocols);
   // radar-4: rankable protocols above the floor that the board does not rank.
   const excludedByCategory: Record<string, number> = {};
   for (const p of snapshot.protocols) {
@@ -458,6 +479,10 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): {
     const heat = heatFor(
       { implied_value_usd: s.implied, change_7d: s.p.change_7d, age_days: s.age },
       { minImplied, maxImplied },
+    );
+    const mom = momentumFor(
+      { change_7d: s.p.change_7d, category: s.p.category },
+      medians,
     );
     return {
     rank: i + 1,
@@ -476,6 +501,9 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): {
     implied_value_usd: s.implied,
     heat: heat.heat,
     heat_parts: heat.parts,
+    momentum: mom.momentum,
+    momentum_pp: mom.momentum_pp,
+    cat_median_7d: mom.cat_median_7d,
     model: {
       base_multiple: model.base_multiple,
       category_multiplier: s.catMult,
@@ -521,6 +549,9 @@ export function radarRow(row: BoardRow, onWatchlist: boolean): RadarRow {
     implied_value_usd: row.implied_value_usd,
     heat: row.heat,
     heat_parts: row.heat_parts,
+    momentum: row.momentum,
+    momentum_pp: row.momentum_pp,
+    cat_median_7d: row.cat_median_7d,
     category_multiplier: row.model.category_multiplier,
     growth_multiplier: row.model.growth_multiplier,
     maturity_multiplier: row.model.maturity_multiplier,
@@ -551,6 +582,7 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     early_size: early,
     live_size: live.length,
     hot_size: board.filter((r) => r.heat >= 70).length,
+    momentum_size: board.filter((r) => r.momentum_pp > 0).length,
     excluded,
     total_implied_usd: board.reduce((s, r) => s + r.implied_value_usd, 0),
     median_implied_usd: median,
