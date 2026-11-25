@@ -37,15 +37,19 @@
     return byCat[b].length - byCat[a].length || (a < b ? -1 : 1);
   });
   var summary = '<table class="mini"><thead><tr><th>Category</th><th class="num">Rows</th>' +
-    '<th class="num">Median implied</th><th>Best row</th></tr></thead><tbody>' +
+    '<th class="num">Median implied</th><th class="num">Median 7d</th><th>Best row</th></tr></thead><tbody>' +
     catNames.map(function (c) {
       var rows = byCat[c];
       var med = median(rows.map(function (r) { return r.implied_value_usd; }));
+      // The median 7d change is a property of the category, so every row
+      // in it carries the same number; take the first row's.
+      var med7d = rows[0].cat_median_7d;
       var best = rows[0];
       for (var i = 1; i < rows.length; i++) if (rows[i].rank < best.rank) best = rows[i];
       return '<tr data-cat="' + esc(c) + '"><td><b>' + esc(c) + '</b></td>' +
         '<td class="num">' + rows.length + '</td>' +
         '<td class="num">' + fmtUsd(med) + '</td>' +
+        '<td class="num">' + (med7d === null || med7d === undefined ? '—' : (med7d >= 0 ? '+' : '') + med7d.toFixed(1) + '%') + '</td>' +
         '<td>#' + best.rank + ' ' + esc(best.name) + '</td></tr>';
     }).join('') + '</tbody></table>';
   var summaryBox = $('catSummary');
@@ -109,6 +113,7 @@
     });
     var val = function (r) {
       if (sortBy === 'tvl') return r.tvl_usd;
+      if (sortBy === 'momentum') return r.momentum_pp;
       if (sortBy === 'growth') return r.change_7d === null ? -Infinity : r.change_7d;
       if (sortBy === 'age') return r.age_days === null ? -1 : r.age_days;
       if (sortBy === 'name') return r.name.toLowerCase();

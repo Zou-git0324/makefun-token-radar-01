@@ -75,6 +75,7 @@
       <select id="sortBy">
         <option value="rank">Rank (implied value)</option>
         <option value="heat">Heat, high to low</option>
+        <option value="momentum">Momentum, high to low</option>
         <option value="tvl">TVL, high to low</option>
         <option value="growth">7-day growth, high to low</option>
         <option value="age">Age, oldest first</option>
@@ -86,6 +87,8 @@
   <p class="result-line" id="resultLine">—</p>
 
   <p class="hot-strip" id="hotStrip"></p>
+
+  <p class="hot-strip" id="momStrip"></p>
 
   <section class="detail card hidden" id="detail" aria-live="polite"></section>
 
@@ -102,6 +105,7 @@
           <th data-sort="age" class="num">Age</th>
           <th data-sort="rank" class="num">Implied value</th>
           <th data-sort="heat" class="num">Heat</th>
+          <th data-sort="momentum" class="num">Momentum</th>
           <th>Farm</th>
         </tr>
       </thead>

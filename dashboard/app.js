@@ -5,7 +5,7 @@
   'use strict';
   var R = window.RADAR;
   if (!R || !R.rows) {
-    document.getElementById('rows').innerHTML = '<tr><td colspan="10">No radar data found. Run main.ts to generate data.js beside this page.</td></tr>';
+    document.getElementById('rows').innerHTML = '<tr><td colspan="11">No radar data found. Run main.ts to generate data.js beside this page.</td></tr>';
     return;
   }
 
@@ -32,6 +32,12 @@
     if (g === null || g === undefined) return '<span>—</span>';
     var cls = g >= 0 ? 'up' : 'down';
     return '<span class="' + cls + '">' + (g >= 0 ? '+' : '') + g.toFixed(1) + '%</span>';
+  };
+  var fmtPp = function (pp) {
+    if (pp === null || pp === undefined) return '<span>—</span>';
+    if (pp === 0) return '<span>0.0pp</span>';
+    var cls = pp > 0 ? 'up' : 'down';
+    return '<span class="' + cls + '">' + (pp > 0 ? '+' : '') + pp.toFixed(1) + 'pp</span>';
   };
   var esc = function (s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -88,6 +94,7 @@
     var val = function (r) {
       if (key === 'tvl') return r.tvl_usd;
       if (key === 'heat') return r.heat;
+      if (key === 'momentum') return r.momentum_pp;
       if (key === 'growth') return r.change_7d === null ? -Infinity : r.change_7d;
       if (key === 'age') return r.age_days === null ? -1 : r.age_days;
       if (key === 'name') return r.name.toLowerCase();
@@ -122,9 +129,10 @@
         '<td class="num">' + fmtAge(r.age_days) + '</td>' +
         '<td class="num"><b>' + fmtUsd(r.implied_value_usd) + '</b></td>' +
         '<td class="num"><span style="display:inline-block;width:36px;height:8px;background:#e5e7eb;vertical-align:middle"><span style="display:block;height:8px;width:' + r.heat + '%;background:#f59e0b"></span></span> ' + r.heat + '</td>' +
+        '<td class="num"><span style="display:inline-block;width:36px;height:8px;background:#e5e7eb;vertical-align:middle"><span style="display:block;height:8px;width:' + (r.momentum * 100).toFixed(0) + '%;background:#0ea5e9"></span></span> ' + fmtPp(r.momentum_pp) + '</td>' +
         '<td><span class="farm-link">7 steps &rsaquo;</span></td></tr>';
     }).join('');
-    $('rows').innerHTML = html || '<tr><td colspan="10">No protocols match these filters. Clear the search or pick another category.</td></tr>';
+    $('rows').innerHTML = html || '<tr><td colspan="11">No protocols match these filters. Clear the search or pick another category.</td></tr>';
     $('resultLine').textContent = 'Showing ' + slice.length + ' of ' + total + ' ranked protocols' +
       (total < R.board_size ? ' (filtered from ' + R.board_size + ')' : '') + '. Click any row for its detail view and farm plan.';
     $('shownLine').textContent = total > shown ? (total - shown) + ' more rows hidden.' : '';
@@ -174,6 +182,13 @@
       barRow('Youth', (r.heat_parts || {}).youth || 0, 1, ((r.heat_parts || {}).youth || 0).toFixed(2), true) +
       '</div>' +
       '<p class="caveat">Heat is a parallel signal, not the rank: 0.40 &times; log implied value across the board, 0.35 &times; this week&rsquo;s growth, 0.25 &times; youth. It flags what is running hot; the rank above still comes from implied value.</p>' +
+      '<h3>Momentum vs its category — ' + fmtPp(r.momentum_pp) + '</h3>' +
+      '<div class="bars">' +
+      barRow('Momentum', r.momentum, 1, r.momentum.toFixed(2), false) +
+      '</div>' +
+      '<p class="caveat">Momentum is this row&rsquo;s 7-day TVL change minus the median 7-day change of its own category' +
+      (r.cat_median_7d === null ? ' (no median: fewer than 3 protocols in the category report a 7-day change)' : ' (category median ' + (r.cat_median_7d >= 0 ? '+' : '') + r.cat_median_7d.toFixed(1) + '%)') +
+      '. It flags which rows are outrunning their own kind this week; the rank above still comes from implied value.</p>' +
       '<p class="caveat">Base is TVL &times; 0.20 &times; category. Multiply the four bars and the base and you get the implied value above — the arithmetic is on the page, not hidden.</p>' +
       '<h3>How to farm it — 7 steps</h3><ol class="farm">' + steps + '</ol>';
     box.classList.remove('hidden');
@@ -187,6 +202,19 @@
     return '<a href="#detail=' + esc(r.slug) + '" data-slug="' + esc(r.slug) + '">#' + r.rank + ' ' + esc(r.name) + ' (' + r.heat + ')</a>';
   }).join(' &middot; ');
   $('hotStrip').addEventListener('click', function (e) {
+    var a = e.target.closest('a[data-slug]');
+    if (!a) return;
+    e.preventDefault();
+    window.location.hash = 'detail=' + a.getAttribute('data-slug');
+    renderDetail(a.getAttribute('data-slug'));
+  });
+
+  // ---- momentum leaders strip ----------------------------------------------
+  var momTop = R.rows.slice().sort(function (a, b) { return b.momentum_pp - a.momentum_pp || a.rank - b.rank; }).slice(0, 5);
+  $('momStrip').innerHTML = '<b>Momentum leaders:</b> ' + momTop.map(function (r) {
+    return '<a href="#detail=' + esc(r.slug) + '" data-slug="' + esc(r.slug) + '">#' + r.rank + ' ' + esc(r.name) + ' (' + (r.momentum_pp >= 0 ? '+' : '') + r.momentum_pp.toFixed(1) + 'pp)</a>';
+  }).join(' &middot; ');
+  $('momStrip').addEventListener('click', function (e) {
     var a = e.target.closest('a[data-slug]');
     if (!a) return;
     e.preventDefault();
